@@ -1,0 +1,20 @@
+{
+  "name": "automatizarmoodle",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@playwright/test": "^1.59.1",
+    "csv-parser": "^3.2.0",
+    "dotenv": "^17.4.2",
+    "playwright": "^1.59.1",
+    "puppeteer": "^24.42.0"
+  }
+}

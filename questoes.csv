@@ -1,0 +1,7 @@
+titulo;enunciado;alt_a;alt_b;alt_c;alt_d;alt_e;correta;tipo-questao
+"Questão de Matemática Básica";"Quanto é 2 + 2?";"1";"2";"3";"4";"5";"d";"Múltipla escolha"
+"Linguagem Web";"Qual linguagem é usada para estruturar a web?";"Python";"JavaScript";"HTML";"CSS";"C++";"c";"Múltipla escolha"
+"Framework Javascript";"Qual das opções é um framework/biblioteca Javascript para criação de UI?";"Laravel";"React";"Django";"Spring";"Ruby on Rails";"b";"Múltipla escolha"
+"O que é Playwright?";"O Playwright é uma ferramenta de automação de testes ponta-a-ponta criada pela Microsoft.";"";"";"";"";"";"Verdadeiro";"Verdadeiro/Falso"
+"Animais e Sons";"Associe o animal ao som que ele faz:";"Cachorro=Latido";"Gato=Miado";"Vaca=Mugido";"";"";"";"Associação"
+"Planeta Vermelho";"Qual planeta do sistema solar é conhecido como planeta vermelho?";"Marte";"marte";"MARTE";"";"";"Marte";"Resposta curta"
