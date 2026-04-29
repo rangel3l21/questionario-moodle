@@ -18,11 +18,331 @@ async function askQuestion(query) {
     }));
 }
 
+function getCsvValue(row, names) {
+    for (const name of names) {
+        if (row[name] !== undefined && row[name] !== null && String(row[name]).trim() !== '') {
+            return String(row[name]).trim();
+        }
+    }
+
+    return '';
+}
+
+function normalizeFormat(format) {
+    return (format || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .split(/[|,;]/)
+        .map(item => item.trim())
+        .filter(Boolean);
+}
+
+function decodeCsvText(value) {
+    return String(value || '')
+        .replace(/\\r\\n/g, '\n')
+        .replace(/\\n/g, '\n')
+        .replace(/\\t/g, '\t');
+}
+
+function normalizeText(value) {
+    return String(value || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+}
+
+function isTrueFalseType(type) {
+    const normalized = normalizeText(type);
+    return normalized.includes('verdadeiro') || normalized.includes('falso');
+}
+
+function isShortAnswerType(type) {
+    return normalizeText(type).includes('curta');
+}
+
+function isAssociationType(type) {
+    const normalized = normalizeText(type);
+    return normalized.includes('associacao') || normalized.includes('assoc');
+}
+
+function isEssayType(type) {
+    const normalized = normalizeText(type);
+    return normalized.includes('dissertacao') || normalized.includes('ensaio');
+}
+
+function isMultipleChoiceType(type) {
+    return !type || (!isTrueFalseType(type) && !isShortAnswerType(type) && !isAssociationType(type) && !isEssayType(type));
+}
+
+function getQuestionTextType(row) {
+    return getCsvValue(row, [
+        'tipo_texto_questao',
+        'tipo-texto-questao',
+        'tipo_texto',
+        'tipo-texto',
+        'formatacao_enunciado',
+        'formatacao-enunciado',
+        'formato_enunciado',
+        'formato-enunciado'
+    ]);
+}
+
+function getAlternativeTextType(row, index) {
+    const letter = String.fromCharCode(97 + index);
+    return getCsvValue(row, [
+        `tipo_texto_alt_${letter}`,
+        `tipo-texto-alt-${letter}`,
+        `formatacao_alt_${letter}`,
+        `formatacao-alt-${letter}`,
+        `formato_alt_${letter}`,
+        `formato-alt-${letter}`
+    ]);
+}
+
+function escapeHtml(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function formatJsonLike(value) {
+    const text = decodeCsvText(value).trim();
+    if (!text) return text;
+
+    try {
+        return JSON.stringify(JSON.parse(text), null, 2);
+    } catch (e) {
+        try {
+            const jsonCandidate = text
+                .replace(/'/g, '"')
+                .replace(/,\s*([}\]])/g, '$1');
+            return JSON.stringify(JSON.parse(jsonCandidate), null, 2);
+        } catch (ignored) {
+            return text;
+        }
+    }
+}
+
+function looksLikeCodeBlock(text) {
+    const value = decodeCsvText(text).trim();
+    return (
+        /^(\{|\[)[\s\S]*(\}|\])$/.test(value) ||
+        /[\r\n]\s*(\{|\[|'[^']+'\s*:|"[^"]+"\s*:)/.test(value) ||
+        /\b(const|let|var|function|class|if|for|while|return)\b[\s\S]*[;{}]/.test(value)
+    );
+}
+
+function textToHtml(text) {
+    return decodeCsvText(text)
+        .split(/\r?\n/)
+        .map(line => line.trim() === '' ? '<p><br></p>' : `<p>${escapeHtml(line)}</p>`)
+        .join('');
+}
+
+function getCodeBlockHtml(code) {
+    return [
+        '<pre style="background:#f6f8fa;border:1px solid #d0d7de;border-radius:6px;',
+        'padding:12px;white-space:pre-wrap;font-family:Consolas,Monaco,monospace;',
+        'font-size:14px;line-height:1.45;overflow-x:auto;text-align:left;"><code>',
+        escapeHtml(formatJsonLike(code)),
+        '</code></pre>'
+    ].join('');
+}
+
+function getInlineCodeHtml(code) {
+    return [
+        '<code style="background:#f6f8fa;border:1px solid #d0d7de;border-radius:4px;',
+        'padding:2px 5px;font-family:Consolas,Monaco,monospace;',
+        'font-size:0.95em;white-space:nowrap;">',
+        escapeHtml(decodeCsvText(code)),
+        '</code>'
+    ].join('');
+}
+
+function structuredTextToHtml(text) {
+    const value = decodeCsvText(text);
+    const firstCurly = value.indexOf('{');
+    const firstSquare = value.indexOf('[');
+    const starts = [firstCurly, firstSquare].filter(index => index >= 0);
+
+    if (starts.length === 0) {
+        return getCodeBlockHtml(value);
+    }
+
+    const codeStart = Math.min(...starts);
+    const codeEnd = Math.max(value.lastIndexOf('}'), value.lastIndexOf(']'));
+
+    if (codeEnd < codeStart) {
+        return getCodeBlockHtml(value);
+    }
+
+    const before = value.slice(0, codeStart).trim();
+    const code = value.slice(codeStart, codeEnd + 1);
+    const after = value.slice(codeEnd + 1).trim();
+    const html = [];
+
+    if (before) html.push(textToHtml(before));
+    html.push(getCodeBlockHtml(code));
+    if (after) html.push(textToHtml(after));
+
+    return html.join('');
+}
+
+function textWithCodeBlocksToHtml(text, type = '') {
+    const normalizedType = normalizeText(type);
+    const forceStructuredText = (
+        normalizedType.includes('json') ||
+        normalizedType.includes('vetor') ||
+        normalizedType.includes('array') ||
+        normalizedType.includes('codigo') ||
+        normalizedType.includes('code')
+    );
+
+    if (forceStructuredText) {
+        return structuredTextToHtml(text);
+    }
+
+    const lines = decodeCsvText(text).split(/\r?\n/);
+    const html = [];
+    let codeLines = [];
+
+    const flushCode = () => {
+        if (codeLines.length === 0) return;
+        html.push(getCodeBlockHtml(codeLines.join('\n')));
+        codeLines = [];
+    };
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+        const isCodeLine = (
+            trimmed.startsWith('{') ||
+            trimmed.startsWith('}') ||
+            trimmed.startsWith('[') ||
+            trimmed.startsWith(']') ||
+            /^['"][^'"]+['"]\s*:/.test(trimmed) ||
+            /^[A-Za-z_$][\w$]*\s*[:=]/.test(trimmed) ||
+            /[,;]$/.test(trimmed) ||
+            (forceStructuredText && looksLikeCodeBlock(trimmed))
+        );
+
+        if (isCodeLine) {
+            codeLines.push(line);
+            continue;
+        }
+
+        flushCode();
+        html.push(trimmed === '' ? '<p><br></p>' : `<p>${escapeHtml(line)}</p>`);
+    }
+
+    flushCode();
+    return html.join('');
+}
+
+async function clickTinyToolbarButton(page, buttonName) {
+    const button = page.locator(`button[data-mce-name="${buttonName}"][aria-disabled="false"]`).last();
+
+    if (await button.count() === 0) {
+        console.log(`Aviso: botao TinyMCE "${buttonName}" nao encontrado.`);
+        return false;
+    }
+
+    try {
+        await button.click({ timeout: 2000 });
+        return true;
+    } catch (e) {
+        const overflowButton = page.locator('button[data-mce-name="overflow-button"][aria-expanded="false"]').last();
+        if (await overflowButton.count() > 0) {
+            await overflowButton.click({ timeout: 2000 });
+            await page.locator(`button[data-mce-name="${buttonName}"][aria-disabled="false"]`).last().click({ timeout: 3000 });
+            return true;
+        }
+
+        console.log(`Aviso: nao foi possivel clicar no botao TinyMCE "${buttonName}".`);
+        return false;
+    }
+}
+
+async function setTinyMceHtml(page, iframeSelector, html) {
+    const frame = page.locator(iframeSelector).contentFrame();
+    await frame.locator('body').click();
+    await page.evaluate(({ selector, content }) => {
+        const iframe = document.querySelector(selector);
+        const editor = iframe && window.tinymce && window.tinymce.get(iframe.id.replace(/_ifr$/, ''));
+
+        if (editor) {
+            editor.setContent(content);
+            editor.fire('change');
+            editor.save();
+            return;
+        }
+
+        if (iframe && iframe.contentDocument && iframe.contentDocument.body) {
+            iframe.contentDocument.body.innerHTML = content;
+            iframe.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    }, { selector: iframeSelector, content: html });
+}
+
+async function fillTinyMceFormatted(page, iframeSelector, text, format) {
+    const value = decodeCsvText(text);
+    const formats = normalizeFormat(format);
+    const frame = page.locator(iframeSelector).contentFrame();
+    const body = frame.locator('body');
+
+    await body.click();
+    await body.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
+    await body.press('Backspace');
+
+    const isJsonLike = formats.includes('json') || formats.includes('vetor') || formats.includes('array');
+    const isInlineCode = (formats.includes('codigo') || formats.includes('code')) && !isJsonLike && !/[\r\n]/.test(value);
+    const isCode = isInlineCode || isJsonLike || looksLikeCodeBlock(value);
+    const isBulletList = formats.includes('lista') || formats.includes('topicos') || formats.includes('marcadores') || formats.includes('bullist');
+    const isNumberedList = formats.includes('numerada') || formats.includes('ordenada') || formats.includes('numlist');
+    const isBold = formats.includes('negrito') || formats.includes('bold');
+    const isItalic = formats.includes('italico') || formats.includes('italic');
+
+    if (formats.includes('esquerda') || formats.includes('alignleft')) {
+        await clickTinyToolbarButton(page, 'alignleft');
+    } else if (formats.includes('centro') || formats.includes('centralizado') || formats.includes('aligncenter')) {
+        await clickTinyToolbarButton(page, 'aligncenter');
+    } else if (formats.includes('direita') || formats.includes('alignright')) {
+        await clickTinyToolbarButton(page, 'alignright');
+    }
+
+    if (isInlineCode) {
+        await setTinyMceHtml(page, iframeSelector, getInlineCodeHtml(value));
+        return;
+    }
+
+    if (isCode) {
+        await setTinyMceHtml(page, iframeSelector, textWithCodeBlocksToHtml(value, format));
+        return;
+    }
+
+    if (isBold) await clickTinyToolbarButton(page, 'bold');
+    if (isItalic) await clickTinyToolbarButton(page, 'italic');
+
+    if (isNumberedList || isBulletList) {
+        await clickTinyToolbarButton(page, isNumberedList ? 'numlist' : 'bullist');
+        const lines = value.split(/\r?\n/).map(line => line.replace(/^[-*]\s+/, '').replace(/^\d+[.)]\s+/, ''));
+        await body.type(lines.join('\n'), { delay: 5 });
+    } else {
+        await body.type(value, { delay: 5 });
+    }
+
+    if (isItalic) await clickTinyToolbarButton(page, 'italic');
+    if (isBold) await clickTinyToolbarButton(page, 'bold');
+}
+
 async function run() {
     const questoes = [];
     
     // Define o arquivo CSV que será lido
-    const arquivoCSV = 'questoes.csv';
+    const arquivoCSV = 'lidar_vetor_de_objetos.csv';
     const nomeQuestionarioBase = path.basename(arquivoCSV, path.extname(arquivoCSV)); // Extrai "questoes"
     
     // 1. Ler o arquivo CSV
@@ -119,13 +439,13 @@ async function run() {
             const tipoQuestao = campoTipo ? campoTipo.trim().toLowerCase() : 'múltipla escolha';
 
             // Escolhe o radio correspondente ao tipo de questão da coluna do CSV
-            if (tipoQuestao.includes('verdadeiro') || tipoQuestao.includes('falso')) {
+            if (isTrueFalseType(tipoQuestao)) {
                 await page.getByRole('radio', { name: 'Verdadeiro/Falso' }).check();
-            } else if (tipoQuestao.includes('curta')) {
+            } else if (isShortAnswerType(tipoQuestao)) {
                 await page.locator('#item_qtype_shortanswer').check();
             } else if (tipoQuestao.includes('dissertação') || tipoQuestao.includes('ensaio')) {
                 await page.getByRole('radio', { name: 'Dissertação' }).check();
-            } else if (tipoQuestao.includes('associação')) {
+            } else if (isAssociationType(tipoQuestao)) {
                 await page.locator('#item_qtype_match').check();
             } else {
                 // Padrão
@@ -139,10 +459,15 @@ async function run() {
 
             // Enunciado (Lidar com o iframe TinyMCE perfeitamente via Playwright)
             // No Playwright, `contentFrame().locator('body')` nos permite escrever dentro de editores wysiwyg com facilidade!
-            await page.locator('#id_questiontext_ifr').contentFrame().locator('body').fill(q.enunciado);
+            await fillTinyMceFormatted(
+                page,
+                '#id_questiontext_ifr',
+                q.enunciado,
+                getQuestionTextType(q)
+            );
 
             // Processar alternativas e respostas de acordo com o tipo
-            if (tipoQuestao === 'múltipla escolha' || tipoQuestao === '') {
+            if (isMultipleChoiceType(tipoQuestao)) {
                 const alternatives = [q.alt_a, q.alt_b, q.alt_c, q.alt_d, q.alt_e];
                 const letterToIndex = { 'a': 0, 'b': 1, 'c': 2, 'd': 3, 'e': 4 };
                 const correctIndex = letterToIndex[q.correta ? q.correta.toLowerCase().trim() : 'a'];
@@ -151,14 +476,19 @@ async function run() {
                     if (!alternatives[altIdx]) continue; // Pula vazias
 
                     // Preenche o campo da alternativa (iframe)
-                    await page.locator(`#id_answer_${altIdx}_ifr`).contentFrame().locator('body').fill(alternatives[altIdx]);
+                    await fillTinyMceFormatted(
+                        page,
+                        `#id_answer_${altIdx}_ifr`,
+                        alternatives[altIdx],
+                        getAlternativeTextType(q, altIdx)
+                    );
 
                     // Define a nota para 100% (1.0) se for a correta
                     if (altIdx === correctIndex) {
                         await page.locator(`#id_fraction_${altIdx}`).selectOption('1.0');
                     }
                 }
-            } else if (tipoQuestao.includes('verdadeiro') || tipoQuestao.includes('falso')) {
+            } else if (isTrueFalseType(tipoQuestao)) {
                 if (q.correta) {
                     const corretaFormatada = q.correta.trim().toLowerCase();
                     if (corretaFormatada === 'verdadeiro' || corretaFormatada === 'v') {
@@ -168,7 +498,7 @@ async function run() {
                         await page.locator('#id_correctanswer').selectOption('0'); 
                     }
                 }
-            } else if (tipoQuestao.includes('associação')) {
+            } else if (isAssociationType(tipoQuestao)) {
                 const alternatives = [q.alt_a, q.alt_b, q.alt_c, q.alt_d, q.alt_e];
                 let subIdx = 0;
                 
@@ -184,13 +514,13 @@ async function run() {
                         
                         // O Moodle cria 3 campos por padrão (0, 1 e 2)
                         if (subIdx <= 2) {
-                            await page.locator(`#id_subquestions_${subIdx}_ifr`).contentFrame().locator('body').fill(subPergunta);
+                            await fillTinyMceFormatted(page, `#id_subquestions_${subIdx}_ifr`, subPergunta, '');
                             await page.locator(`#id_subanswers_${subIdx}`).fill(subResposta);
                             subIdx++;
                         }
                     }
                 }
-            } else if (tipoQuestao.includes('curta')) {
+            } else if (isShortAnswerType(tipoQuestao)) {
                 // Para resposta curta, qualquer texto nas alternativas ou na coluna correta será considerado uma resposta 100% aceita.
                 const acceptedAnswers = [q.correta, q.alt_a, q.alt_b, q.alt_c, q.alt_d, q.alt_e]
                     .map(a => a ? a.trim() : '')
