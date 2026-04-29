@@ -1,8 +1,0 @@
-2026/04/27-13:38:08.930 3168 Reusing MANIFEST C:\Users\range\Documents\programmer\automatizarMoodle\user_data_pw\Default\Local Storage\leveldb/MANIFEST-000001
-2026/04/27-13:38:08.932 3168 Recovering log #28
-2026/04/27-13:38:08.933 3168 Level-0 table #31: started
-2026/04/27-13:38:08.935 3168 Level-0 table #31: 46446 bytes OK
-2026/04/27-13:38:08.937 3168 Delete type=0 #28
-2026/04/27-13:40:09.327 2178 Level-0 table #34: started
-2026/04/27-13:40:09.333 2178 Level-0 table #34: 46435 bytes OK
-2026/04/27-13:40:09.335 2178 Delete type=0 #32
