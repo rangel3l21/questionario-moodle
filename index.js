@@ -1,3 +1,4 @@
+//csv na linha 345
 require('dotenv').config();
 const { chromium } = require('playwright');
 const fs = require('fs');
@@ -342,7 +343,7 @@ async function run() {
     const questoes = [];
     
     // Define o arquivo CSV que será lido
-    const arquivoCSV = 'lidar_vetor_de_objetos.csv';
+    const arquivoCSV = 'tads_mobile.csv';
     const nomeQuestionarioBase = path.basename(arquivoCSV, path.extname(arquivoCSV)); // Extrai "questoes"
     
     // 1. Ler o arquivo CSV
@@ -435,8 +436,11 @@ async function run() {
             await page.getByRole('menuitem', { name: 'uma nova questão uma nova' }).last().click();
             
             // Define o tipo da questão (Padrão: Múltipla escolha)
-            const campoTipo = q['tipo-questao'] || q.tipo;
+            const campoTipo = q['tipo_questao'] || q['tipo-questao'] || q.tipo;
             const tipoQuestao = campoTipo ? campoTipo.trim().toLowerCase() : 'múltipla escolha';
+            
+            // DEBUG: Log para verificar qual tipo está sendo lido
+            console.log(`[Questão ${i+1}] Tipo lido: "${campoTipo}" | Tipo normalizado: "${tipoQuestao}"`);
 
             // Escolhe o radio correspondente ao tipo de questão da coluna do CSV
             if (isTrueFalseType(tipoQuestao)) {
